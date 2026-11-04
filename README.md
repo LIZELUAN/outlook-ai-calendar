@@ -20,7 +20,7 @@
 * **安全本地存储**：API Key 仅通过浏览器的 `localStorage` 本地安全缓存，隐私绝对安全。
 
 ### 🚀 快速开始
-👉 **[点击这里打开在线工具][(https://github.com/LIZELUAN/outlook-ai-calendar/)**
+👉 **[点击这里打开在线工具][(https://LIZELUAN.github.io/outlook-ai-calendar/)**
 
 ---
 
@@ -40,5 +40,5 @@ A web-based AI tool, designed for students. It parses unstructured academic semi
 
 ### 🚀 Usage
 Access your hosted web app via GitHub Pages:
-👉 **[Open Your Web Tool Here](https://github.com/LIZELUAN/outlook-ai-calendar/)**
+👉 **[Open the Web Tool Here](https://LIZELUAN.github.io/outlook-ai-calendar/)**
 
