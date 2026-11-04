@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI 邮件日历转换器</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #f9f9f9; color: #333; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
@@ -11,8 +12,11 @@
         textarea { height: 150px; }
         button { width: 100%; background: #0078d4; color: white; border: none; padding: 12px; border-radius: 4px; font-size: 16px; cursor: pointer; margin-top: 15px; font-weight: bold; transition: background 0.2s; }
         button:hover { background: #005a9e; }
+        .btn-secondary { background: #107c41; margin-top: 10px; }
+        .btn-secondary:hover { background: #0b5a2f; }
         #status { font-size: 14px; color: #d83b01; margin-top: 10px; text-align: center; font-weight: bold; }
         .hint { font-size: 11px; color: #888; margin-top: 2px; }
+        #resultBox { display: none; margin-top: 15px; padding: 12px; background: #fff; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; word-break: break-all; }
     </style>
 </head>
 <body>
@@ -23,13 +27,16 @@
     <div class="hint">🔒 仅安全保存在你当前浏览器的本地缓存中。</div>
 
     <label>2. 粘贴邮件正文内容：</label>
-    <textarea id="emailText" placeholder="在此处粘贴邮件正文（若含 Research Seminar 或 Grand Round 会自动规范化标题，无时间则默认早5点至晚22点）..."></textarea>
+    <textarea id="emailText" placeholder="在此处粘贴邮件正文（若含 Seminar/Grand Round 会自动规范标题，无时间则默认全天早5点至晚22点）..."></textarea>
     
-    <button onclick="convertEmail()">🚀 立即用 AI 解析并生成 Outlook 日历</button>
+    <button onclick="convertEmail()">🚀 立即用 AI 解析并生成日程</button>
     
     <div id="status"></div>
+    <div id="resultBox"></div>
 
     <script>
+        let lastParsedData = null;
+
         window.onload = function() {
             const savedKey = localStorage.getItem("my_ai_api_key");
             if (savedKey) {
@@ -46,6 +53,9 @@
             const apiKey = document.getElementById("apiKey").value.trim();
             const text = document.getElementById("emailText").value.trim();
             const statusDiv = document.getElementById("status");
+            const resultBox = document.getElementById("resultBox");
+
+            resultBox.style.display = "none";
 
             if (!apiKey || !text) {
                 alert("请先填写 API Key 并粘贴邮件内容！");
@@ -79,11 +89,11 @@
                                 }
                                 规则：
                                 1. 题目(title)规范：
-                                   - 若邮件检测到是 Research Seminar，题目必须以 "Research Seminar: " 开头，后面跟简单概要的主题。
-                                   - 若邮件检测到是 Research Grand Round，题目必须以 "Research Grand Round: " 开头，后面跟简单概要的主题。
-                                   - 其他类型活动则输出简洁明了的概要题目。
+                                   - 若邮件检测到是 Research Seminar，题目必须以 "Research Seminar: " 开头。
+                                   - 若邮件检测到是 Research Grand Round，题目必须以 "Research Grand Round: " 开头。
+                                   - 其他类型活动输出简洁概要题目。
                                 2. 时间规则：
-                                   - 若邮件中只有日期（或多日活动），开始时间(startTime)设为活动首日 05:00:00，结束时间(endTime)设为末日 22:00:00（每天早5点到晚10点）。
+                                   - 若邮件中只有日期（或多日活动），开始时间(startTime)设为活动首日 05:00:00，结束时间(endTime)设为末日 22:00:00。
                                    - 若有具体时间点，按实际精确时间提取。
                                 3. 当前年份默认使用 2026 年。`
                             },
@@ -97,32 +107,70 @@
                 }
 
                 const data = await response.json();
-                const parsed = JSON.parse(data.choices[0].message.content);
+                lastParsedData = JSON.parse(data.choices[0].message.content);
 
                 statusDiv.style.color = "#107c41";
-                statusDiv.innerText = "✨ 提取成功！正在为你跳转到 Outlook 日历...";
+                statusDiv.innerText = "✨ 提取成功！正在尝试打开 Outlook...";
 
-                const startDate = new Date(parsed.startTime || Date.now());
-                const endDate = new Date(parsed.endTime || new Date(startDate.getTime() + 3600000));
-
-                const summaryText = "演讲人/组织: " + (parsed.speaker || "无") + "\n\n" + (parsed.summary || "");
+                const startDate = new Date(lastParsedData.startTime || Date.now());
+                const endDate = new Date(lastParsedData.endTime || new Date(startDate.getTime() + 3600000));
+                const summaryText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\n\n" + (lastParsedData.summary || "");
 
                 const outlookUrl = "https://outlook.office.com/calendar/0/deeplink/compose?subject=" + 
-                    encodeURIComponent(parsed.title || "学术活动") + 
-                    "&location=" + encodeURIComponent(parsed.location || "线上/未指定") + 
+                    encodeURIComponent(lastParsedData.title || "学术活动") + 
+                    "&location=" + encodeURIComponent(lastParsedData.location || "线上/未指定") + 
                     "&startdt=" + startDate.toISOString() + 
                     "&enddt=" + endDate.toISOString() + 
                     "&body=" + encodeURIComponent(summaryText);
 
-                setTimeout(() => {
-                    window.open(outlookUrl, "_blank");
-                }, 500);
+                // 尝试直接跳转
+                window.open(outlookUrl, "_blank");
+
+                // 同时显示手机备用面板（以防手机端 window.open 被拦截）
+                resultBox.style.display = "block";
+                resultBox.innerHTML = `<b>📌 如果手机没自动跳转，可点击下方按钮：</b><br>
+                    • <b>主题:</b> ${lastParsedData.title}<br>
+                    • <b>时间:</b> ${startDate.toLocaleString()} ~ ${endDate.toLocaleString()}<br>
+                    • <b>地点:</b> ${lastParsedData.location || "无"}<br>
+                    <button class="btn-secondary" onclick="downloadICS()">📥 下载日历文件 (.ics 手机直接导入)</button>
+                    <button class="btn-secondary" style="background:#0078d4;" onclick="copyDetails()">📋 复制全部日程摘要</button>`;
 
             } catch (err) {
                 statusDiv.style.color = "#d83b01";
                 statusDiv.innerText = "❌ 发生错误: " + err.message + " (请检查网络或 Key 是否有效)";
                 console.error(err);
             }
+        }
+
+        function downloadICS() {
+            if (!lastParsedData) return;
+            const s = new Date(lastParsedData.startTime);
+            const e = new Date(lastParsedData.endTime);
+            
+            const formatDate = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+            
+            const icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:" + 
+                lastParsedData.title + "\nDESCRIPTION:" + (lastParsedData.summary || "").replace(/\n/g, "\\n") + 
+                "\nLOCATION:" + (lastParsedData.location || "") + 
+                "\nDTSTART:" + formatDate(s) + 
+                "\nDTEND:" + formatDate(e) + 
+                "\nEND:VEVENT\nEND:VCALENDAR";
+
+            const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
+            const link = document.createElement("a");
+            link.href = window.URL.createObjectURL(blob);
+            link.download = "event.ics";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function copyDetails() {
+            if (!lastParsedData) return;
+            const text = `主题: ${lastParsedData.title}\n讲者/组织: ${lastParsedData.speaker}\n时间: ${lastParsedData.startTime} 至 ${lastParsedData.endTime}\n地点: ${lastParsedData.location}\n简介: ${lastParsedData.summary}`;
+            navigator.clipboard.writeText(text).then(() => {
+                alert("✅ 成功复制到剪贴板！");
+            });
         }
     </script>
 </body>
