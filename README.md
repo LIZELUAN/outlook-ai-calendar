@@ -38,6 +38,5 @@ A web-based AI tool, designed for students. It parses unstructured academic semi
 * **Secure Local Storage**: API Key is safely stored locally via browser `localStorage`.
 
 ### Usage
-Access your hosted web app via GitHub Pages:
 👉 **[Open the Web Tool Here](https://LIZELUAN.github.io/outlook-ai-calendar/)**
 
