@@ -1,4 +1,4 @@
-# 🤖 AI Email-to-Calendar Converter / AI 邮件日历转换器
+# AI Email-to-Calendar Converter / AI 邮件日历转换器
 
 [English](#english) | [中文说明](#chinese)
 
