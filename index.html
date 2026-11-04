@@ -16,7 +16,7 @@
         .btn-secondary:hover { background: #0b5a2f; }
         #status { font-size: 14px; color: #d83b01; margin-top: 10px; text-align: center; font-weight: bold; }
         .hint { font-size: 11px; color: #888; margin-top: 2px; }
-        #resultBox { display: none; margin-top: 15px; padding: 12px; background: #fff; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; word-break: break-all; }
+        #mobileBox { display: none; margin-top: 15px; padding: 12px; background: #fff; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; word-break: break-all; }
     </style>
 </head>
 <body>
@@ -27,12 +27,12 @@
     <div class="hint">🔒 仅安全保存在你当前浏览器的本地缓存中。</div>
 
     <label>2. 粘贴邮件正文内容：</label>
-    <textarea id="emailText" placeholder="在此处粘贴邮件正文（若含 Seminar/Grand Round 会自动规范标题，无时间则默认全天早5点至晚22点）..."></textarea>
+    <textarea id="emailText" placeholder="在此处粘贴邮件正文（电脑端自动跳转网页日历，手机端自动生成ICS文件导入）..."></textarea>
     
     <button onclick="convertEmail()">🚀 立即用 AI 解析并生成日程</button>
     
     <div id="status"></div>
-    <div id="resultBox"></div>
+    <div id="mobileBox"></div>
 
     <script>
         let lastParsedData = null;
@@ -49,13 +49,18 @@
             localStorage.setItem("my_ai_api_key", apiKey);
         }
 
+        // 检测是否为手机端
+        function isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+
         async function convertEmail() {
             const apiKey = document.getElementById("apiKey").value.trim();
             const text = document.getElementById("emailText").value.trim();
             const statusDiv = document.getElementById("status");
-            const resultBox = document.getElementById("resultBox");
+            const mobileBox = document.getElementById("mobileBox");
 
-            resultBox.style.display = "none";
+            mobileBox.style.display = "none";
 
             if (!apiKey || !text) {
                 alert("请先填写 API Key 并粘贴邮件内容！");
@@ -109,31 +114,41 @@
                 const data = await response.json();
                 lastParsedData = JSON.parse(data.choices[0].message.content);
 
-                statusDiv.style.color = "#107c41";
-                statusDiv.innerText = "✨ 提取成功！正在尝试打开 Outlook...";
-
                 const startDate = new Date(lastParsedData.startTime || Date.now());
                 const endDate = new Date(lastParsedData.endTime || new Date(startDate.getTime() + 3600000));
                 const summaryText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\n\n" + (lastParsedData.summary || "");
 
-                const outlookUrl = "https://outlook.office.com/calendar/0/deeplink/compose?subject=" + 
-                    encodeURIComponent(lastParsedData.title || "学术活动") + 
-                    "&location=" + encodeURIComponent(lastParsedData.location || "线上/未指定") + 
-                    "&startdt=" + startDate.toISOString() + 
-                    "&enddt=" + endDate.toISOString() + 
-                    "&body=" + encodeURIComponent(summaryText);
+                // 根据设备类型执行不同的逻辑
+                if (isMobileDevice()) {
+                    // 📱 手机端：自动触发 ICS 文件下载，并在页面展示详情与按钮
+                    statusDiv.style.color = "#107c41";
+                    statusDiv.innerText = "✨ 提取成功！已为你生成手机日历文件";
 
-                // 尝试直接跳转
-                window.open(outlookUrl, "_blank");
+                    downloadICS(); // 自动触发下载
 
-                // 同时显示手机备用面板（以防手机端 window.open 被拦截）
-                resultBox.style.display = "block";
-                resultBox.innerHTML = `<b>📌 如果手机没自动跳转，可点击下方按钮：</b><br>
-                    • <b>主题:</b> ${lastParsedData.title}<br>
-                    • <b>时间:</b> ${startDate.toLocaleString()} ~ ${endDate.toLocaleString()}<br>
-                    • <b>地点:</b> ${lastParsedData.location || "无"}<br>
-                    <button class="btn-secondary" onclick="downloadICS()">📥 下载日历文件 (.ics 手机直接导入)</button>
-                    <button class="btn-secondary" style="background:#0078d4;" onclick="copyDetails()">📋 复制全部日程摘要</button>`;
+                    mobileBox.style.display = "block";
+                    mobileBox.innerHTML = `<b>📱 手机快捷操作面板：</b><br>
+                        • <b>主题:</b> ${lastParsedData.title}<br>
+                        • <b>时间:</b> ${startDate.toLocaleString()} ~ ${endDate.toLocaleString()}<br>
+                        • <b>地点:</b> ${lastParsedData.location || "无"}<br>
+                        <button class="btn-secondary" onclick="downloadICS()">📥 再次下载日历文件 (.ics)</button>
+                        <button class="btn-secondary" style="background:#0078d4;" onclick="copyDetails()">📋 复制全部日程摘要</button>`;
+                } else {
+                    // 💻 电脑端：直接打开网页版 Outlook 日历 Deep Link
+                    statusDiv.style.color = "#107c41";
+                    statusDiv.innerText = "✨ 提取成功！正在为你打开 Outlook 日历...";
+
+                    const outlookUrl = "https://outlook.office.com/calendar/0/deeplink/compose?subject=" + 
+                        encodeURIComponent(lastParsedData.title || "学术活动") + 
+                        "&location=" + encodeURIComponent(lastParsedData.location || "线上/未指定") + 
+                        "&startdt=" + startDate.toISOString() + 
+                        "&enddt=" + endDate.toISOString() + 
+                        "&body=" + encodeURIComponent(summaryText);
+
+                    setTimeout(() => {
+                        window.open(outlookUrl, "_blank");
+                    }, 500);
+                }
 
             } catch (err) {
                 statusDiv.style.color = "#d83b01";
@@ -148,9 +163,10 @@
             const e = new Date(lastParsedData.endTime);
             
             const formatDate = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+            const summaryText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\\n\\n" + (lastParsedData.summary || "");
             
             const icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:" + 
-                lastParsedData.title + "\nDESCRIPTION:" + (lastParsedData.summary || "").replace(/\n/g, "\\n") + 
+                lastParsedData.title + "\nDESCRIPTION:" + summaryText + 
                 "\nLOCATION:" + (lastParsedData.location || "") + 
                 "\nDTSTART:" + formatDate(s) + 
                 "\nDTEND:" + formatDate(e) + 
@@ -159,7 +175,7 @@
             const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
             const link = document.createElement("a");
             link.href = window.URL.createObjectURL(blob);
-            link.download = "event.ics";
+            link.download = (lastParsedData.title || "event") + ".ics";
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
