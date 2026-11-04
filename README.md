@@ -20,7 +20,7 @@
 * **安全本地存储**：API Key 仅通过浏览器的 `localStorage` 本地安全缓存，隐私绝对安全。
 
 ### 🚀 快速开始
-👉 **[点击这里打开在线工具][(https://LIZELUAN.github.io/outlook-ai-calendar/)**
+👉 **[点击这里打开在线工具](https://LIZELUAN.github.io/outlook-ai-calendar/)**
 
 ---
 
