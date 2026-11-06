@@ -37,7 +37,7 @@
     <div class="hint">💡 例如：gpt-4o-mini, gpt-4o, deepseek-chat 等。</div>
 
     <label>4. 粘贴邮件正文内容：</label>
-    <textarea id="emailText" placeholder="在此处粘贴邮件正文（地点严格忠于原文、绝不瞎编；组会默认2小时；正则捕捉 Zoom 链接）..."></textarea>
+    <textarea id="emailText" placeholder="在此处粘贴邮件正文（无会议链接时自动隐藏该行；组会默认2小时；地点严格忠于原文）..."></textarea>
     
     <button onclick="convertEmail()">🚀 立即用 AI 解析邮件</button>
     
@@ -123,14 +123,14 @@
                                   "speaker": "演讲人或主办/团队名称",
                                   "startTime": "YYYY-MM-DDTHH:mm:ss格式",
                                   "endTime": "YYYY-MM-DDTHH:mm:ss格式",
-                                  "location": "【绝对忠于原文】提取邮件中明确写出的地点或房间号。如果邮件里写了楼名与房间号，请一并完整提取；如果邮件里只写了房间号或某个词，严禁凭空编造、猜测或添加邮件中未出现的大楼名称。若完全无地点，则留空字符串 \"\" 或写 Online。",
+                                  "location": "【绝对忠于原文】提取邮件中明确写出的地点或房间号。严禁凭空编造、猜测或添加邮件中未出现的大楼名称。若完全无地点，则留空字符串 \"\"。",
                                   "meetingLink": "【极其重要】提取邮件中出现的任何 Zoom、Teams、Google Meet 或腾讯会议(Voov)等在线会议 URL。若无则留空字符串 \"\"",
                                   "summary": "简介"
                                 }
                                 规则：
                                 1. 题目(title)规范：
                                    - 若邮件检测到是 Research Seminar，题目必须以 "Research Seminar: " 开头。
-                                   - 若邮件检测到 is Research Grand Round，题目必须以 "Research Grand Round: " 开头。
+                                   - 若邮件检测到是 Research Grand Round，题目必须以 "Research Grand Round: " 开头。
                                    - 其他类型活动输出简洁概要题目。
                                 2. 地点(location)严禁瞎编：
                                    - 必须从原文照抄或组合原文中已有的地点片段。绝对不允许自己脑补或凭空添加邮件里没有提过的建筑名。
@@ -164,16 +164,18 @@
                 const startDate = new Date(lastParsedData.startTime || Date.now());
                 const endDate = new Date(lastParsedData.endTime || new Date(startDate.getTime() + 7200000));
 
-                const linkDisplay = lastParsedData.meetingLink ? `<a href="${lastParsedData.meetingLink}" target="_blank">${lastParsedData.meetingLink}</a>` : "无";
-
-                document.getElementById("eventSummary").innerHTML = `
+                // 动态拼接卡片显示内容（无链接时自动省略该行）
+                let summaryHTML = `
                     • <b>主题:</b> ${lastParsedData.title || "学术活动"}<br>
                     • <b>时间:</b> ${startDate.toLocaleString()} ~ ${endDate.toLocaleString()}<br>
                     • <b>地点:</b> ${lastParsedData.location || "线上/未指定"}<br>
-                    • <b>讲者:</b> ${lastParsedData.speaker || "无"}<br>
-                    • <b>会议链接:</b> ${linkDisplay}
+                    • <b>讲者:</b> ${lastParsedData.speaker || "无"}
                 `;
+                if (lastParsedData.meetingLink && lastParsedData.meetingLink.trim() !== "") {
+                    summaryHTML += `<br>• <b>会议链接:</b> <a href="${lastParsedData.meetingLink}" target="_blank">${lastParsedData.meetingLink}</a>`;
+                }
 
+                document.getElementById("eventSummary").innerHTML = summaryHTML;
                 actionPanel.style.display = "block";
 
             } catch (err) {
@@ -183,9 +185,10 @@
             }
         }
 
+        // 动态生成正文描述（无链接时绝对不写链接行）
         function getFullBodyText() {
             let bodyText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\n\n";
-            if (lastParsedData.meetingLink) {
+            if (lastParsedData.meetingLink && lastParsedData.meetingLink.trim() !== "") {
                 bodyText += "🔗 在线会议链接: " + lastParsedData.meetingLink + "\n\n";
             }
             bodyText += "📝 简介:\n" + (lastParsedData.summary || "无");
@@ -198,9 +201,9 @@
             const endDate = new Date(lastParsedData.endTime);
             const summaryText = getFullBodyText();
 
-            const finalLocation = lastParsedData.location && lastParsedData.location !== "线上/未指定" 
+            const finalLocation = lastParsedData.location && lastParsedData.location.trim() !== "" 
                 ? lastParsedData.location 
-                : (lastParsedData.meetingLink || "Zoom / Online");
+                : (lastParsedData.meetingLink || "Online");
 
             const outlookUrl = "https://outlook.office.com/calendar/0/deeplink/compose?subject=" + 
                 encodeURIComponent(lastParsedData.title || "学术活动") + 
@@ -220,7 +223,7 @@
             const formatDate = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
             
             let summaryText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\\n\\n";
-            if (lastParsedData.meetingLink) {
+            if (lastParsedData.meetingLink && lastParsedData.meetingLink.trim() !== "") {
                 summaryText += "🔗 在线会议链接: " + lastParsedData.meetingLink + "\\n\\n";
             }
             summaryText += "📝 简介:\\n" + (lastParsedData.summary || "无");
@@ -245,7 +248,12 @@
 
         function copyDetails() {
             if (!lastParsedData) return;
-            const text = `主题: ${lastParsedData.title}\n讲者/组织: ${lastParsedData.speaker}\n时间: ${lastParsedData.startTime} 至 ${lastParsedData.endTime}\n地点: ${lastParsedData.location}\n会议链接: ${lastParsedData.meetingLink || "无"}\n简介: ${lastParsedData.summary}`;
+            let text = `主题: ${lastParsedData.title}\n讲者/组织: ${lastParsedData.speaker}\n时间: ${lastParsedData.startTime} 至 ${lastParsedData.endTime}\n地点: ${lastParsedData.location || "无"}`;
+            if (lastParsedData.meetingLink && lastParsedData.meetingLink.trim() !== "") {
+                text += `\n会议链接: ${lastParsedData.meetingLink}`;
+            }
+            text += `\n简介: ${lastParsedData.summary}`;
+
             navigator.clipboard.writeText(text).then(() => {
                 alert("✅ 成功复制到剪贴板！");
             });
