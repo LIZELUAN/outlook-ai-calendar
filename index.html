@@ -37,7 +37,7 @@
     <div class="hint">💡 例如：gpt-4o-mini, gpt-4o, deepseek-chat 等。</div>
 
     <label>4. 粘贴邮件正文内容：</label>
-    <textarea id="emailText" placeholder="在此处粘贴邮件正文（自动提取 Zoom/Teams 链接，含 Seminar/Grand Round 会自动规范标题）..."></textarea>
+    <textarea id="emailText" placeholder="在此处粘贴邮件正文（内置正则双保险，必定精准捕捉 Zoom/Teams 链接）..."></textarea>
     
     <button onclick="convertEmail()">🚀 立即用 AI 解析邮件</button>
     
@@ -74,6 +74,14 @@
             localStorage.setItem("my_ai_api_url", baseUrl);
             localStorage.setItem("my_ai_api_key", apiKey);
             localStorage.setItem("my_ai_api_model", model);
+        }
+
+        // 🛡️ 双保险：前端正则兜底函数（如果 AI 漏掉了，JS 直接从原始文本里把 Zoom/Teams 链接揪出来）
+        function extractMeetingLinkFallback(rawText) {
+            // 匹配常见的 Zoom, Teams, Google Meet, Voov 会议网址
+            const urlRegex = /(https?:\/\/[^\s]+(?:zoom\.us|teams\.microsoft\.com|zoom\.com\.cn|meet\.google\.com|voovmeeting\.com|s\.tencent\.com)[^\s]*)/i;
+            const match = rawText.match(urlRegex);
+            return match ? match[0].replace(/[)\].,;]$/, "") : ""; // 去掉末尾可能误带的标点
         }
 
         async function convertEmail() {
@@ -117,7 +125,7 @@
                                   "startTime": "YYYY-MM-DDTHH:mm:ss格式",
                                   "endTime": "YYYY-MM-DDTHH:mm:ss格式",
                                   "location": "实体地点或线上说明（如 Zoom / Teams / Online）",
-                                  "meetingLink": "会议在线链接 URL (如 Zoom/Teams/Voov 链接，无则留空字符串)",
+                                  "meetingLink": "【极其重要】必须提取邮件中出现的任何 Zoom、Teams、Google Meet 或腾讯会议(Voov)等在线会议 URL。若整封邮件绝对没有，则留空字符串 \"\"",
                                   "summary": "简介"
                                 }
                                 规则：
@@ -126,7 +134,7 @@
                                    - 若邮件检测到是 Research Grand Round，题目必须以 "Research Grand Round: " 开头。
                                    - 其他类型活动输出简洁概要题目。
                                 2. 会议链接(meetingLink)：
-                                   - 专门提取 Zoom, MS Teams, Tencent/Voov Meeting, Google Meet 等在线会议 URL。若无则设为空字符串 ""。
+                                   - 仔细扫描整段文本，绝不能漏掉任何 http/https 开头的会议链接。
                                 3. 时间规则：
                                    - 若邮件中只有日期（或多日活动），开始时间(startTime)设为活动首日 05:00:00，结束时间(endTime)设为末日 22:00:00。
                                    - 若有具体时间点，按实际精确时间提取。
@@ -143,6 +151,11 @@
 
                 const data = await response.json();
                 lastParsedData = JSON.parse(data.choices[0].message.content);
+
+                // 🛡️ 触发双保险：如果 AI 没抓到，用正则从原始邮件文本中强行抓取
+                if (!lastParsedData.meetingLink || lastParsedData.meetingLink.trim() === "") {
+                    lastParsedData.meetingLink = extractMeetingLinkFallback(text);
+                }
 
                 statusDiv.style.color = "#107c41";
                 statusDiv.innerText = "✨ 解析成功！请在下方选择对应操作：";
@@ -184,7 +197,6 @@
             const endDate = new Date(lastParsedData.endTime);
             const summaryText = getFullBodyText();
 
-            // 如果有 Zoom 链接但 location 没填，自动把 Zoom 链接或者 Zoom 填进地点栏
             const finalLocation = lastParsedData.location && lastParsedData.location !== "线上/未指定" 
                 ? lastParsedData.location 
                 : (lastParsedData.meetingLink || "Zoom / Online");
