@@ -22,7 +22,7 @@
     </style>
 </head>
 <body>
-    <h2>🍓 AI 邮件日历转换器</h2>
+    <h2>🤖 AI 邮件日历转换器</h2>
     
     <label>1. API Base URL (接口基础地址)：</label>
     <input type="text" id="apiBaseUrl" value="https://api.chatanywhere.tech/v1" oninput="saveSettings()">
@@ -37,7 +37,7 @@
     <div class="hint">💡 例如：gpt-4o-mini, gpt-4o, deepseek-chat 等。</div>
 
     <label>4. 粘贴邮件正文内容：</label>
-    <textarea id="emailText" placeholder="在此处粘贴邮件正文（自动捕捉 Zoom/Teams 链接；若是 Team/Lab Meeting 且无结束时间，默认持续 2 小时）..."></textarea>
+    <textarea id="emailText" placeholder="在此处粘贴邮件正文（地点严格忠于原文、绝不瞎编；组会默认2小时；正则捕捉 Zoom 链接）..."></textarea>
     
     <button onclick="convertEmail()">🚀 立即用 AI 解析邮件</button>
     
@@ -76,7 +76,7 @@
             localStorage.setItem("my_ai_api_model", model);
         }
 
-        // 🛡️ 双保险：前端正则兜底函数（如果 AI 漏掉了，JS 直接从原始邮件文本里把 Zoom/Teams 链接揪出来）
+        // 🛡️ 正则兜底：抓取 Zoom / Teams 等链接
         function extractMeetingLinkFallback(rawText) {
             const urlRegex = /(https?:\/\/[^\s]+(?:zoom\.us|teams\.microsoft\.com|zoom\.com\.cn|meet\.google\.com|voovmeeting\.com|s\.tencent\.com)[^\s]*)/i;
             const match = rawText.match(urlRegex);
@@ -120,25 +120,26 @@
                                 content: `从邮件中提取事件信息，并输出严格的 JSON 格式：
                                 {
                                   "title": "日历题目",
-                                  "speaker": "演讲人或主办方/团队名称",
+                                  "speaker": "演讲人或主办/团队名称",
                                   "startTime": "YYYY-MM-DDTHH:mm:ss格式",
                                   "endTime": "YYYY-MM-DDTHH:mm:ss格式",
-                                  "location": "实体地点或线上说明（如 Zoom / Teams / Online）",
-                                  "meetingLink": "【极其重要】必须提取邮件中出现的任何 Zoom、Teams、Google Meet 或腾讯会议(Voov)等在线会议 URL。若整封邮件绝对没有，则留空字符串 \"\"",
+                                  "location": "【绝对忠于原文】提取邮件中明确写出的地点或房间号。如果邮件里写了楼名与房间号，请一并完整提取；如果邮件里只写了房间号或某个词，严禁凭空编造、猜测或添加邮件中未出现的大楼名称。若完全无地点，则留空字符串 \"\" 或写 Online。",
+                                  "meetingLink": "【极其重要】提取邮件中出现的任何 Zoom、Teams、Google Meet 或腾讯会议(Voov)等在线会议 URL。若无则留空字符串 \"\"",
                                   "summary": "简介"
                                 }
                                 规则：
                                 1. 题目(title)规范：
                                    - 若邮件检测到是 Research Seminar，题目必须以 "Research Seminar: " 开头。
-                                   - 若邮件检测到是 Research Grand Round，题目必须以 "Research Grand Round: " 开头。
+                                   - 若邮件检测到 is Research Grand Round，题目必须以 "Research Grand Round: " 开头。
                                    - 其他类型活动输出简洁概要题目。
-                                2. 会议时长与时间规则：
-                                   - 若邮件中只有日期（或多日活动），开始时间(startTime)设为活动首日 05:00:00，结束时间(endTime)设为末日 22:00:00。
-                                   - 【新增规则】：若邮件中显示为 **Team Meeting** 或 **Lab Meeting**，且邮件中**没有明确给出结束时间**，则默认将结束时间(endTime)设为开始时间之后的 **2个小时**。
-                                   - 若有具体起止时间，按实际精确时间提取。
-                                3. 在线会议链接(meetingLink)：
-                                   - 仔细扫描整段文本，绝不能漏掉任何 http/https 开头的会议链接。
-                                4. 当前年份默认使用 2026 年。`
+                                2. 地点(location)严禁瞎编：
+                                   - 必须从原文照抄或组合原文中已有的地点片段。绝对不允许自己脑补或凭空添加邮件里没有提过的建筑名。
+                                3. 会议时长与时间规则：
+                                   - 若邮件中只有日期（或多日活动），开始时间设为活动首日 05:00:00，结束时间设为末日 22:00:00。
+                                   - 若邮件中显示为 **Team Meeting**、**Lab Meeting** 或任何组会/讨论，且没有明确给出结束时间，必须将结束时间设为**开始时间之后整整 2 小时**。
+                                   - 若有其他具体起止时间，按实际提取。
+                                4. 在线会议链接(meetingLink)：绝不能漏掉 http/https 开头的会议链接。
+                                5. 当前年份默认使用 2026 年。`
                             },
                             { role: "user", content: text }
                         ]
@@ -161,7 +162,7 @@
                 statusDiv.innerText = "✨ 解析成功！请在下方选择对应操作：";
 
                 const startDate = new Date(lastParsedData.startTime || Date.now());
-                const endDate = new Date(lastParsedData.endTime || new Date(startDate.getTime() + 7200000)); // 默认兜底也改为 2 小时
+                const endDate = new Date(lastParsedData.endTime || new Date(startDate.getTime() + 7200000));
 
                 const linkDisplay = lastParsedData.meetingLink ? `<a href="${lastParsedData.meetingLink}" target="_blank">${lastParsedData.meetingLink}</a>` : "无";
 
