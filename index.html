@@ -22,7 +22,7 @@
     </style>
 </head>
 <body>
-    <h2>🍓 AI 邮件日历转换器</h2>
+    <h2>🤖 AI 邮件日历转换器</h2>
     
     <label>1. API Base URL (接口基础地址)：</label>
     <input type="text" id="apiBaseUrl" value="https://api.chatanywhere.tech/v1" oninput="saveSettings()">
@@ -37,7 +37,7 @@
     <div class="hint">💡 例如：gpt-4o-mini, gpt-4o, deepseek-chat 等。</div>
 
     <label>4. 粘贴邮件正文内容：</label>
-    <textarea id="emailText" placeholder="在此处粘贴邮件正文（若含 Seminar/Grand Round 会自动规范标题，无时间则默认全天早5点至晚22点）..."></textarea>
+    <textarea id="emailText" placeholder="在此处粘贴邮件正文（自动提取 Zoom/Teams 链接，含 Seminar/Grand Round 会自动规范标题）..."></textarea>
     
     <button onclick="convertEmail()">🚀 立即用 AI 解析邮件</button>
     
@@ -91,7 +91,6 @@
                 return;
             }
 
-            // 自动去掉 URL 末尾可能多打的斜杠 /
             baseUrl = baseUrl.replace(/\/+$/, "");
             const endpoint = baseUrl + "/chat/completions";
 
@@ -117,7 +116,8 @@
                                   "speaker": "演讲人或主办方/团队名称",
                                   "startTime": "YYYY-MM-DDTHH:mm:ss格式",
                                   "endTime": "YYYY-MM-DDTHH:mm:ss格式",
-                                  "location": "地点",
+                                  "location": "实体地点或线上说明（如 Zoom / Teams / Online）",
+                                  "meetingLink": "会议在线链接 URL (如 Zoom/Teams/Voov 链接，无则留空字符串)",
                                   "summary": "简介"
                                 }
                                 规则：
@@ -125,10 +125,12 @@
                                    - 若邮件检测到是 Research Seminar，题目必须以 "Research Seminar: " 开头。
                                    - 若邮件检测到是 Research Grand Round，题目必须以 "Research Grand Round: " 开头。
                                    - 其他类型活动输出简洁概要题目。
-                                2. 时间规则：
+                                2. 会议链接(meetingLink)：
+                                   - 专门提取 Zoom, MS Teams, Tencent/Voov Meeting, Google Meet 等在线会议 URL。若无则设为空字符串 ""。
+                                3. 时间规则：
                                    - 若邮件中只有日期（或多日活动），开始时间(startTime)设为活动首日 05:00:00，结束时间(endTime)设为末日 22:00:00。
                                    - 若有具体时间点，按实际精确时间提取。
-                                3. 当前年份默认使用 2026 年。`
+                                4. 当前年份默认使用 2026 年。`
                             },
                             { role: "user", content: text }
                         ]
@@ -148,11 +150,14 @@
                 const startDate = new Date(lastParsedData.startTime || Date.now());
                 const endDate = new Date(lastParsedData.endTime || new Date(startDate.getTime() + 3600000));
 
+                const linkDisplay = lastParsedData.meetingLink ? `<a href="${lastParsedData.meetingLink}" target="_blank">${lastParsedData.meetingLink}</a>` : "无";
+
                 document.getElementById("eventSummary").innerHTML = `
                     • <b>主题:</b> ${lastParsedData.title || "学术活动"}<br>
                     • <b>时间:</b> ${startDate.toLocaleString()} ~ ${endDate.toLocaleString()}<br>
                     • <b>地点:</b> ${lastParsedData.location || "线上/未指定"}<br>
-                    • <b>讲者:</b> ${lastParsedData.speaker || "无"}
+                    • <b>讲者:</b> ${lastParsedData.speaker || "无"}<br>
+                    • <b>会议链接:</b> ${linkDisplay}
                 `;
 
                 actionPanel.style.display = "block";
@@ -164,15 +169,29 @@
             }
         }
 
+        function getFullBodyText() {
+            let bodyText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\n\n";
+            if (lastParsedData.meetingLink) {
+                bodyText += "🔗 在线会议链接: " + lastParsedData.meetingLink + "\n\n";
+            }
+            bodyText += "📝 简介:\n" + (lastParsedData.summary || "无");
+            return bodyText;
+        }
+
         function openOutlookWeb() {
             if (!lastParsedData) return;
             const startDate = new Date(lastParsedData.startTime);
             const endDate = new Date(lastParsedData.endTime);
-            const summaryText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\n\n" + (lastParsedData.summary || "");
+            const summaryText = getFullBodyText();
+
+            // 如果有 Zoom 链接但 location 没填，自动把 Zoom 链接或者 Zoom 填进地点栏
+            const finalLocation = lastParsedData.location && lastParsedData.location !== "线上/未指定" 
+                ? lastParsedData.location 
+                : (lastParsedData.meetingLink || "Zoom / Online");
 
             const outlookUrl = "https://outlook.office.com/calendar/0/deeplink/compose?subject=" + 
                 encodeURIComponent(lastParsedData.title || "学术活动") + 
-                "&location=" + encodeURIComponent(lastParsedData.location || "线上/未指定") + 
+                "&location=" + encodeURIComponent(finalLocation) + 
                 "&startdt=" + startDate.toISOString() + 
                 "&enddt=" + endDate.toISOString() + 
                 "&body=" + encodeURIComponent(summaryText);
@@ -186,11 +205,18 @@
             const e = new Date(lastParsedData.endTime);
             
             const formatDate = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-            const summaryText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\\n\\n" + (lastParsedData.summary || "");
+            
+            let summaryText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\\n\\n";
+            if (lastParsedData.meetingLink) {
+                summaryText += "🔗 在线会议链接: " + lastParsedData.meetingLink + "\\n\\n";
+            }
+            summaryText += "📝 简介:\\n" + (lastParsedData.summary || "无");
+
+            const finalLocation = lastParsedData.location || lastParsedData.meetingLink || "Online";
             
             const icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:" + 
-                lastParsedData.title + "\nDESCRIPTION:" + summaryText + 
-                "\nLOCATION:" + (lastParsedData.location || "") + 
+                (lastParsedData.title || "学术活动") + "\nDESCRIPTION:" + summaryText + 
+                "\nLOCATION:" + finalLocation + 
                 "\nDTSTART:" + formatDate(s) + 
                 "\nDTEND:" + formatDate(e) + 
                 "\nEND:VEVENT\nEND:VCALENDAR";
@@ -206,7 +232,7 @@
 
         function copyDetails() {
             if (!lastParsedData) return;
-            const text = `主题: ${lastParsedData.title}\n讲者/组织: ${lastParsedData.speaker}\n时间: ${lastParsedData.startTime} 至 ${lastParsedData.endTime}\n地点: ${lastParsedData.location}\n简介: ${lastParsedData.summary}`;
+            const text = `主题: ${lastParsedData.title}\n讲者/组织: ${lastParsedData.speaker}\n时间: ${lastParsedData.startTime} 至 ${lastParsedData.endTime}\n地点: ${lastParsedData.location}\n会议链接: ${lastParsedData.meetingLink || "无"}\n简介: ${lastParsedData.summary}`;
             navigator.clipboard.writeText(text).then(() => {
                 alert("✅ 成功复制到剪贴板！");
             });
