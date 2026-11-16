@@ -10,15 +10,20 @@
         label { font-size: 13px; font-weight: bold; color: #555; display: block; margin-top: 12px; }
         input, textarea { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; font-size: 14px; }
         textarea { height: 150px; }
-        button { width: 100%; background: #0078d4; color: white; border: none; padding: 12px; border-radius: 4px; font-size: 16px; cursor: pointer; margin-top: 15px; font-weight: bold; transition: background 0.2s; }
+        button { width: 100%; background: #0078d4; color: white; border: none; padding: 11px; border-radius: 4px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: bold; transition: background 0.2s; }
         button:hover { background: #005a9e; }
-        .btn-ics { background: #107c41; margin-top: 10px; }
+        .btn-main { padding: 12px; font-size: 16px; margin-top: 15px; }
+        .btn-ics { background: #107c41; }
         .btn-ics:hover { background: #0b5a2f; }
-        .btn-copy { background: #888; margin-top: 10px; }
+        .btn-batch { background: #5c2d91; margin-bottom: 12px; }
+        .btn-batch:hover { background: #45216e; }
+        .btn-copy { background: #888; }
         .btn-copy:hover { background: #666; }
-        #status { font-size: 14px; color: #d83b01; margin-top: 10px; text-align: center; font-weight: bold; }
+        #status { font-size: 14px; color: #d83b01; margin-top: 12px; text-align: center; font-weight: bold; }
         .hint { font-size: 11px; color: #888; margin-top: 2px; }
-        #actionPanel { display: none; margin-top: 15px; padding: 15px; background: #fff; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; word-break: break-all; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        #actionPanel { display: none; margin-top: 15px; }
+        .event-card { margin-top: 12px; padding: 15px; background: #fff; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; word-break: break-all; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .session-badge { display: inline-block; background: #0078d4; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-bottom: 6px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -37,24 +42,17 @@
     <div class="hint">💡 例如：gpt-4o-mini, gpt-4o, deepseek-chat 等。</div>
 
     <label>4. 粘贴邮件正文内容：</label>
-    <textarea id="emailText" placeholder="在此处粘贴邮件正文（无会议链接时自动隐藏该行；组会默认2小时；地点严格忠于原文）..."></textarea>
+    <textarea id="emailText" placeholder="在此处粘贴邮件正文（自动识别单个或多个独立 Session；地点严格忠于原文；组会默认2小时；正则捕捉 Zoom 链接）..."></textarea>
     
-    <button onclick="convertEmail()">🚀 立即用 AI 解析邮件</button>
+    <button class="btn-main" onclick="convertEmail()">🚀 立即用 AI 解析邮件</button>
     
     <div id="status"></div>
     
-    <!-- 智能解析后的自由选择面板 -->
-    <div id="actionPanel">
-        <b>✨ 解析成功！请选择你要使用的方式：</b><br>
-        <div id="eventSummary" style="margin: 8px 0; color: #555; font-size: 12px; line-height: 1.4;"></div>
-        
-        <button onclick="openOutlookWeb()">💻 电脑端：一键打开网页版 Outlook 日历</button>
-        <button class="btn-ics" onclick="downloadICS()">📱 手机端：下载 ICS 文件 (直接导入日历/App)</button>
-        <button class="btn-copy" onclick="copyDetails()">📋 复制全部日程摘要文本</button>
-    </div>
+    <!-- 智能解析后的动态多场次选择面板 -->
+    <div id="actionPanel"></div>
 
     <script>
-        let lastParsedData = null;
+        let parsedEvents = [];
 
         window.onload = function() {
             const savedUrl = localStorage.getItem("my_ai_api_url");
@@ -76,11 +74,12 @@
             localStorage.setItem("my_ai_api_model", model);
         }
 
-        // 🛡️ 正则兜底：抓取 Zoom / Teams 等链接
-        function extractMeetingLinkFallback(rawText) {
-            const urlRegex = /(https?:\/\/[^\s]+(?:zoom\.us|teams\.microsoft\.com|zoom\.com\.cn|meet\.google\.com|voovmeeting\.com|s\.tencent\.com)[^\s]*)/i;
-            const match = rawText.match(urlRegex);
-            return match ? match[0].replace(/[)\].,;]$/, "") : "";
+        // 🛡️ 正则兜底：提取邮件中出现的所有 Zoom / Teams 等链接
+        function extractAllMeetingLinksFallback(rawText) {
+            const urlRegex = /(https?:\/\/[^\s]+(?:zoom\.us|teams\.microsoft\.com|zoom\.com\.cn|meet\.google\.com|voovmeeting\.com|s\.tencent\.com)[^\s]*)/gi;
+            const matches = rawText.match(urlRegex);
+            if (!matches) return [];
+            return matches.map(u => u.replace(/[)\].,;]$/, ""));
         }
 
         async function convertEmail() {
@@ -92,6 +91,8 @@
             const actionPanel = document.getElementById("actionPanel");
 
             actionPanel.style.display = "none";
+            actionPanel.innerHTML = "";
+            parsedEvents = [];
 
             if (!baseUrl || !apiKey || !model || !text) {
                 alert("请完整填写 API 地址、Key、模型名称以及邮件内容！");
@@ -117,29 +118,38 @@
                         messages: [
                             {
                                 role: "system",
-                                content: `从邮件中提取事件信息，并输出严格的 JSON 格式：
+                                content: `从邮件中提取所有独立的日程事件（Session），并输出严格的 JSON 格式：
                                 {
-                                  "title": "日历题目",
-                                  "speaker": "演讲人或主办/团队名称",
-                                  "startTime": "YYYY-MM-DDTHH:mm:ss格式",
-                                  "endTime": "YYYY-MM-DDTHH:mm:ss格式",
-                                  "location": "【绝对忠于原文】提取邮件中明确写出的地点或房间号。严禁凭空编造、猜测或添加邮件中未出现的大楼名称。若完全无地点，则留空字符串 \"\"。",
-                                  "meetingLink": "【极其重要】提取邮件中出现的任何 Zoom、Teams、Google Meet 或腾讯会议(Voov)等在线会议 URL。若无则留空字符串 \"\"",
-                                  "summary": "简介"
+                                  "events": [
+                                    {
+                                      "title": "日历题目",
+                                      "speaker": "演讲人或主办/团队名称",
+                                      "startTime": "YYYY-MM-DDTHH:mm:ss格式",
+                                      "endTime": "YYYY-MM-DDTHH:mm:ss格式",
+                                      "location": "【绝对忠于原文】提取邮件中明确写出的地点或房间号。严禁凭空编造、猜测或添加邮件中未出现的大楼名称。若无地点则留空字符串 \"\"。",
+                                      "meetingLink": "【极其重要】提取属于该场次的 Zoom、Teams、Google Meet 或腾讯会议(Voov)等在线会议 URL。若无则留空字符串 \"\"",
+                                      "summary": "该场次简介"
+                                    }
+                                  ]
                                 }
                                 规则：
-                                1. 题目(title)规范：
+                                1. 多 Session 识别（极其重要）：
+                                   - 仔细检查整封邮件是否包含多个独立的场次（例如 Session 1 & Session 2、上午场 & 下午场、不同日期或不同时间段的多个独立讲座/会议）。
+                                   - 如果有多个独立 Session，必须将它们拆分成 events 数组中的多个独立对象，按时间顺序排列，绝不能只提取第一个而忽略后面的场次！
+                                   - 如果不同 Session 共用同一个会议链接或地点，各自字段都要完整保留；如果有各自独立的讲者或题目，分别对应填入（可在 title 中体现如 "(Session 1)" 或各自具体题目）。
+                                   - 如果整封邮件只有一个活动，events 数组中就放 1 个对象。
+                                2. 题目(title)规范：
                                    - 若邮件检测到是 Research Seminar，题目必须以 "Research Seminar: " 开头。
                                    - 若邮件检测到是 Research Grand Round，题目必须以 "Research Grand Round: " 开头。
                                    - 其他类型活动输出简洁概要题目。
-                                2. 地点(location)严禁瞎编：
+                                3. 地点(location)严禁瞎编：
                                    - 必须从原文照抄或组合原文中已有的地点片段。绝对不允许自己脑补或凭空添加邮件里没有提过的建筑名。
-                                3. 会议时长与时间规则：
-                                   - 若邮件中只有日期（或多日活动），开始时间设为活动首日 05:00:00，结束时间设为末日 22:00:00。
-                                   - 若邮件中显示为 **Team Meeting**、**Lab Meeting** 或任何组会/讨论，且没有明确给出结束时间，必须将结束时间设为**开始时间之后整整 2 小时**。
-                                   - 若有其他具体起止时间，按实际提取。
-                                4. 在线会议链接(meetingLink)：绝不能漏掉 http/https 开头的会议链接。
-                                5. 当前年份默认使用 2026 年。`
+                                4. 会议时长与时间规则：
+                                   - 若某个场次只有日期（或跨日活动）且无具体时刻，开始时间设为首日 05:00:00，结束时间设为末日 22:00:00。
+                                   - 若显示为 **Team Meeting**、**Lab Meeting** 或任何组会/讨论，且没有明确给出结束时间，必须将结束时间设为**开始时间之后整整 2 小时**。
+                                   - 若有具体起止时间，按实际精确时间提取。
+                                5. 在线会议链接(meetingLink)：绝不能漏掉 http/https 开头的会议链接。
+                                6. 当前年份默认使用 2026 年。`
                             },
                             { role: "user", content: text }
                         ]
@@ -151,32 +161,29 @@
                 }
 
                 const data = await response.json();
-                lastParsedData = JSON.parse(data.choices[0].message.content);
+                const parsedJson = JSON.parse(data.choices[0].message.content);
+                
+                // 兼容处理：确保拿到数组
+                parsedEvents = Array.isArray(parsedJson.events) ? parsedJson.events : [parsedJson];
 
-                // 🛡️ 触发双保险：如果 AI 没抓到，用正则从原始邮件文本中强行抓取
-                if (!lastParsedData.meetingLink || lastParsedData.meetingLink.trim() === "") {
-                    lastParsedData.meetingLink = extractMeetingLinkFallback(text);
-                }
+                // 🛡️ 触发双保险：用正则提取邮件中的所有会议链接进行兜底补全
+                const fallbackLinks = extractAllMeetingLinksFallback(text);
+                parsedEvents.forEach((ev, idx) => {
+                    if (!ev.meetingLink || ev.meetingLink.trim() === "") {
+                        if (fallbackLinks.length === 1) {
+                            ev.meetingLink = fallbackLinks[0];
+                        } else if (fallbackLinks[idx]) {
+                            ev.meetingLink = fallbackLinks[idx];
+                        }
+                    }
+                });
 
                 statusDiv.style.color = "#107c41";
-                statusDiv.innerText = "✨ 解析成功！请在下方选择对应操作：";
+                statusDiv.innerText = parsedEvents.length > 1 
+                    ? `✨ 解析成功！共识别出 ${parsedEvents.length} 个独立 Session：` 
+                    : "✨ 解析成功！请在下方选择对应操作：";
 
-                const startDate = new Date(lastParsedData.startTime || Date.now());
-                const endDate = new Date(lastParsedData.endTime || new Date(startDate.getTime() + 7200000));
-
-                // 动态拼接卡片显示内容（无链接时自动省略该行）
-                let summaryHTML = `
-                    • <b>主题:</b> ${lastParsedData.title || "学术活动"}<br>
-                    • <b>时间:</b> ${startDate.toLocaleString()} ~ ${endDate.toLocaleString()}<br>
-                    • <b>地点:</b> ${lastParsedData.location || "线上/未指定"}<br>
-                    • <b>讲者:</b> ${lastParsedData.speaker || "无"}
-                `;
-                if (lastParsedData.meetingLink && lastParsedData.meetingLink.trim() !== "") {
-                    summaryHTML += `<br>• <b>会议链接:</b> <a href="${lastParsedData.meetingLink}" target="_blank">${lastParsedData.meetingLink}</a>`;
-                }
-
-                document.getElementById("eventSummary").innerHTML = summaryHTML;
-                actionPanel.style.display = "block";
+                renderEventsUI();
 
             } catch (err) {
                 statusDiv.style.color = "#d83b01";
@@ -185,28 +192,70 @@
             }
         }
 
-        // 动态生成正文描述（无链接时绝对不写链接行）
-        function getFullBodyText() {
-            let bodyText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\n\n";
-            if (lastParsedData.meetingLink && lastParsedData.meetingLink.trim() !== "") {
-                bodyText += "🔗 在线会议链接: " + lastParsedData.meetingLink + "\n\n";
+        function renderEventsUI() {
+            const actionPanel = document.getElementById("actionPanel");
+            let html = "";
+
+            // 如果识别出多个 Session，顶部提供一键打包下载全部场次 .ics 的按钮
+            if (parsedEvents.length > 1) {
+                html += `<button class="btn-batch" onclick="downloadAllICS()">📦 一键下载全部 ${parsedEvents.length} 个场次合并 ICS 文件</button>`;
             }
-            bodyText += "📝 简介:\n" + (lastParsedData.summary || "无");
+
+            parsedEvents.forEach((ev, index) => {
+                const startDate = new Date(ev.startTime || Date.now());
+                const endDate = new Date(ev.endTime || new Date(startDate.getTime() + 7200000));
+
+                const badgeHTML = parsedEvents.length > 1 
+                    ? `<div class="session-badge">Session ${index + 1} / ${parsedEvents.length}</div><br>` 
+                    : "";
+
+                let linkRow = "";
+                if (ev.meetingLink && ev.meetingLink.trim() !== "") {
+                    linkRow = `<br>• <b>会议链接:</b> <a href="${ev.meetingLink}" target="_blank">${ev.meetingLink}</a>`;
+                }
+
+                html += `
+                    <div class="event-card">
+                        ${badgeHTML}
+                        <div style="color: #555; font-size: 12px; line-height: 1.5; margin-bottom: 8px;">
+                            • <b>主题:</b> ${ev.title || "学术活动"}<br>
+                            • <b>时间:</b> ${startDate.toLocaleString()} ~ ${endDate.toLocaleString()}<br>
+                            • <b>地点:</b> ${ev.location || "线上/未指定"}<br>
+                            • <b>讲者:</b> ${ev.speaker || "无"}${linkRow}
+                        </div>
+                        <button onclick="openOutlookWeb(${index})">💻 电脑端：打开网页版 Outlook 日历</button>
+                        <button class="btn-ics" onclick="downloadSingleICS(${index})">📱 手机端：下载此场次 ICS 文件</button>
+                        <button class="btn-copy" onclick="copyDetails(${index})">📋 复制此场次日程摘要</button>
+                    </div>
+                `;
+            });
+
+            actionPanel.innerHTML = html;
+            actionPanel.style.display = "block";
+        }
+
+        function getFullBodyText(ev) {
+            let bodyText = "演讲人/组织: " + (ev.speaker || "无") + "\n\n";
+            if (ev.meetingLink && ev.meetingLink.trim() !== "") {
+                bodyText += "🔗 在线会议链接: " + ev.meetingLink + "\n\n";
+            }
+            bodyText += "📝 简介:\n" + (ev.summary || "无");
             return bodyText;
         }
 
-        function openOutlookWeb() {
-            if (!lastParsedData) return;
-            const startDate = new Date(lastParsedData.startTime);
-            const endDate = new Date(lastParsedData.endTime);
-            const summaryText = getFullBodyText();
+        function openOutlookWeb(index) {
+            const ev = parsedEvents[index];
+            if (!ev) return;
+            const startDate = new Date(ev.startTime);
+            const endDate = new Date(ev.endTime);
+            const summaryText = getFullBodyText(ev);
 
-            const finalLocation = lastParsedData.location && lastParsedData.location.trim() !== "" 
-                ? lastParsedData.location 
-                : (lastParsedData.meetingLink || "Online");
+            const finalLocation = ev.location && ev.location.trim() !== "" 
+                ? ev.location 
+                : (ev.meetingLink || "Online");
 
             const outlookUrl = "https://outlook.office.com/calendar/0/deeplink/compose?subject=" + 
-                encodeURIComponent(lastParsedData.title || "学术活动") + 
+                encodeURIComponent(ev.title || "学术活动") + 
                 "&location=" + encodeURIComponent(finalLocation) + 
                 "&startdt=" + startDate.toISOString() + 
                 "&enddt=" + endDate.toISOString() + 
@@ -215,44 +264,62 @@
             window.open(outlookUrl, "_blank");
         }
 
-        function downloadICS() {
-            if (!lastParsedData) return;
-            const s = new Date(lastParsedData.startTime);
-            const e = new Date(lastParsedData.endTime);
-            
+        function buildVEventBlock(ev) {
+            const s = new Date(ev.startTime);
+            const e = new Date(ev.endTime);
             const formatDate = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-            
-            let summaryText = "演讲人/组织: " + (lastParsedData.speaker || "无") + "\\n\\n";
-            if (lastParsedData.meetingLink && lastParsedData.meetingLink.trim() !== "") {
-                summaryText += "🔗 在线会议链接: " + lastParsedData.meetingLink + "\\n\\n";
+
+            let summaryText = "演讲人/组织: " + (ev.speaker || "无") + "\\n\\n";
+            if (ev.meetingLink && ev.meetingLink.trim() !== "") {
+                summaryText += "🔗 在线会议链接: " + ev.meetingLink + "\\n\\n";
             }
-            summaryText += "📝 简介:\\n" + (lastParsedData.summary || "无");
+            summaryText += "📝 简介:\\n" + (ev.summary || "无");
 
-            const finalLocation = lastParsedData.location || lastParsedData.meetingLink || "Online";
-            
-            const icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:" + 
-                (lastParsedData.title || "学术活动") + "\nDESCRIPTION:" + summaryText + 
-                "\nLOCATION:" + finalLocation + 
-                "\nDTSTART:" + formatDate(s) + 
-                "\nDTEND:" + formatDate(e) + 
-                "\nEND:VEVENT\nEND:VCALENDAR";
+            const finalLocation = ev.location && ev.location.trim() !== "" 
+                ? ev.location 
+                : (ev.meetingLink || "Online");
 
+            return "BEGIN:VEVENT\nSUMMARY:" + (ev.title || "学术活动") + 
+                   "\nDESCRIPTION:" + summaryText + 
+                   "\nLOCATION:" + finalLocation + 
+                   "\nDTSTART:" + formatDate(s) + 
+                   "\nDTEND:" + formatDate(e) + 
+                   "\nEND:VEVENT";
+        }
+
+        function triggerICSDownload(icsContent, filename) {
             const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
             const link = document.createElement("a");
             link.href = window.URL.createObjectURL(blob);
-            link.download = (lastParsedData.title || "event") + ".ics";
+            link.download = filename;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         }
 
-        function copyDetails() {
-            if (!lastParsedData) return;
-            let text = `主题: ${lastParsedData.title}\n讲者/组织: ${lastParsedData.speaker}\n时间: ${lastParsedData.startTime} 至 ${lastParsedData.endTime}\n地点: ${lastParsedData.location || "无"}`;
-            if (lastParsedData.meetingLink && lastParsedData.meetingLink.trim() !== "") {
-                text += `\n会议链接: ${lastParsedData.meetingLink}`;
+        function downloadSingleICS(index) {
+            const ev = parsedEvents[index];
+            if (!ev) return;
+            const icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\n" + buildVEventBlock(ev) + "\nEND:VCALENDAR";
+            triggerICSDownload(icsContent, (ev.title || "event") + ".ics");
+        }
+
+        function downloadAllICS() {
+            if (!parsedEvents || parsedEvents.length === 0) return;
+            const vevents = parsedEvents.map(ev => buildVEventBlock(ev)).join("\n");
+            const icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\n" + vevents + "\nEND:VCALENDAR";
+            const baseTitle = parsedEvents[0].title || "events";
+            triggerICSDownload(icsContent, `${baseTitle}_all_${parsedEvents.length}_sessions.ics`);
+        }
+
+        function copyDetails(index) {
+            const ev = parsedEvents[index];
+            if (!ev) return;
+            let text = `主题: ${ev.title}\n讲者/组织: ${ev.speaker}\n时间: ${ev.startTime} 至 ${ev.endTime}\n地点: ${ev.location || "无"}`;
+            if (ev.meetingLink && ev.meetingLink.trim() !== "") {
+                text += `\n会议链接: ${ev.meetingLink}`;
             }
-            text += `\n简介: ${lastParsedData.summary}`;
+            text += `\n简介: ${ev.summary}`;
 
             navigator.clipboard.writeText(text).then(() => {
                 alert("✅ 成功复制到剪贴板！");
